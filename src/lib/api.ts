@@ -656,12 +656,16 @@ export const api = {
         rol_id: u.rol,
         nombre: `${u.nombre} ${u.apellido || ''}`.trim(),
       };
+<<<<<<< HEAD
       // Usar el JWT real firmado que ahora devuelve la API de autenticación
       const token =
         authData.token ||
         authData.access_token ||
         authData.jwt ||
         `auth_token_${u.id}_${Date.now()}`;
+=======
+      const token = authData.token || authData.access_token || `auth_token_${u.id}_${Date.now()}`;
+>>>>>>> f9c5f2420bab7e4533d4de77f7359689efb7db87
       setToken(token);
       setDemoMode(false);
       if (isClient()) {
