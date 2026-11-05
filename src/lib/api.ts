@@ -39,7 +39,30 @@ function isClient(): boolean {
 
 export function getToken(): string | null {
   if (!isClient()) return null;
-  return localStorage.getItem('umes_token');
+  const token = localStorage.getItem('umes_token');
+  // Auto-actualizar si el usuario tenía el token viejo simulado
+  if (token && token.startsWith('auth_token_')) {
+    fetch(`${AUTH_API_URL}/api/login`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': AUTH_API_KEY,
+      },
+      body: JSON.stringify({
+        correo: 'admin@parqueo.com',
+        password: 'Admin123',
+      }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.token || data?.access_token) {
+          const realJwt = data.token || data.access_token;
+          localStorage.setItem('umes_token', realJwt);
+        }
+      })
+      .catch(() => {});
+  }
+  return token;
 }
 
 export function setToken(token: string): void {
@@ -633,7 +656,12 @@ export const api = {
         rol_id: u.rol,
         nombre: `${u.nombre} ${u.apellido || ''}`.trim(),
       };
-      const token = `auth_token_${u.id}_${Date.now()}`;
+      // Usar el JWT real firmado que ahora devuelve la API de autenticación
+      const token =
+        authData.token ||
+        authData.access_token ||
+        authData.jwt ||
+        `auth_token_${u.id}_${Date.now()}`;
       setToken(token);
       setDemoMode(false);
       if (isClient()) {
@@ -729,7 +757,8 @@ export const api = {
     getAll: async (): Promise<NivelParqueo[]> => {
       if (isDemoMode()) return mockStore.getNiveles();
       try {
-        const data = await request<NivelParqueo[]>('/niveles-parqueo');
+        // En Render la ruta válida es /niveles-parqueo/sucursal/:sucursalId
+        const data = await request<NivelParqueo[]>('/niveles-parqueo/sucursal/1');
         if (Array.isArray(data) && data.length > 0) return data;
         return mockStore.getNiveles();
       } catch {
@@ -747,7 +776,8 @@ export const api = {
     getAll: async (): Promise<Espacio[]> => {
       if (isDemoMode()) return mockStore.getEspacios();
       try {
-        const data = await request<Espacio[]>('/espacios');
+        // En Render la ruta válida es /espacios/disponibles
+        const data = await request<Espacio[]>('/espacios/disponibles');
         if (Array.isArray(data) && data.length > 0) return data;
         return mockStore.getEspacios();
       } catch {

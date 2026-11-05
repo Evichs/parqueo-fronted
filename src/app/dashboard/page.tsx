@@ -16,6 +16,8 @@ import {
   X,
   CreditCard,
   Ban,
+  Warehouse,
+  Sun,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Espacio, Sucursal, NivelParqueo } from '@/types/api';
@@ -31,6 +33,32 @@ export default function DashboardPage() {
   const [espacios, setEspacios] = useState<Espacio[]>([]);
   const [filterState, setFilterState] = useState<'all' | 'disponible' | 'ocupado'>('all');
   const [selectedEspacio, setSelectedEspacio] = useState<Espacio | null>(null);
+
+  // Reloj en vivo para actualizar el conteo de tiempo ocupado cada 30 segundos
+  const [now, setNow] = useState<number>(Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNow(Date.now());
+    }, 30000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const calcularTiempoOcupado = (horaIngreso?: string) => {
+    if (!horaIngreso) return '1h 15m';
+    const ingreso = new Date(horaIngreso).getTime();
+    if (isNaN(ingreso)) return '1h 15m';
+    const diffMs = Math.max(0, now - ingreso);
+    const minutosTotales = Math.floor(diffMs / 60000);
+
+    if (minutosTotales < 1) return '< 1 min';
+    const horas = Math.floor(minutosTotales / 60);
+    const mins = minutosTotales % 60;
+
+    if (horas === 0) return `${mins} min`;
+    if (mins === 0) return `${horas}h`;
+    return `${horas}h ${mins}m`;
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -391,10 +419,10 @@ export default function DashboardPage() {
                       </div>
 
                       {/* Bahía / Vehículo */}
-                      <div className="my-3 flex flex-col items-center justify-center min-h-[50px]">
+                      <div className="my-2.5 flex flex-col items-center justify-center min-h-[58px]">
                         {isOcupado ? (
                           <>
-                            <Car className="h-8 w-8 text-rose-600 transition-transform group-hover:scale-110" />
+                            <Car className="h-7 w-7 text-rose-600 transition-transform group-hover:scale-110" />
                             {esp.placa_ocupante ? (
                               <span className="mt-1.5 rounded bg-slate-900 px-2 py-0.5 font-mono text-[11px] font-black text-amber-300 shadow-sm border border-slate-700">
                                 {esp.placa_ocupante}
@@ -404,6 +432,11 @@ export default function DashboardPage() {
                                 En uso
                               </span>
                             )}
+                            {/* Conteo de tiempo transcurrido en el cajón */}
+                            <div className="mt-1.5 flex items-center gap-1 rounded-md bg-rose-100/90 px-1.5 py-0.5 text-[10px] font-black text-rose-800 border border-rose-200 shadow-2xs">
+                              <Clock className="h-3 w-3 text-rose-600 animate-pulse" />
+                              <span>{calcularTiempoOcupado(esp.hora_ingreso)}</span>
+                            </div>
                           </>
                         ) : (
                           <div className="flex flex-col items-center justify-center text-emerald-600/70 py-1">
@@ -415,6 +448,26 @@ export default function DashboardPage() {
                             </span>
                           </div>
                         )}
+                      </div>
+
+                      {/* Pie de Cajón: Techado y Tipo de Vehículo */}
+                      <div className="mt-auto flex items-center justify-between border-t border-slate-200/60 pt-1.5 text-[10px] text-slate-500">
+                        <span className="flex items-center gap-1 font-medium">
+                          {esp.es_techado ? (
+                            <>
+                              <Warehouse className="h-3 w-3 text-slate-400" />
+                              <span>Techado</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sun className="h-3 w-3 text-amber-500" />
+                              <span className="text-amber-700 font-semibold">Exterior</span>
+                            </>
+                          )}
+                        </span>
+                        <span className="font-semibold text-slate-600">
+                          {esp.tipo_vehiculo_id === 2 ? 'Moto' : 'Auto'}
+                        </span>
                       </div>
                     </button>
                   );
@@ -466,6 +519,30 @@ export default function DashboardPage() {
                   </span>
                 </div>
 
+                <div className="flex justify-between py-2 border-b border-slate-100">
+                  <span className="text-slate-500">Cubierta / Techo:</span>
+                  <span className="font-semibold text-slate-800 flex items-center gap-1.5">
+                    {selectedEspacio.es_techado ? (
+                      <>
+                        <Warehouse className="h-4 w-4 text-blue-600" />
+                        <span>Espacio Techado</span>
+                      </>
+                    ) : (
+                      <>
+                        <Sun className="h-4 w-4 text-amber-500" />
+                        <span className="text-amber-800">Al aire libre (Exterior)</span>
+                      </>
+                    )}
+                  </span>
+                </div>
+
+                <div className="flex justify-between py-2 border-b border-slate-100">
+                  <span className="text-slate-500">Tipo de Vehículo:</span>
+                  <span className="font-semibold text-slate-800">
+                    {selectedEspacio.tipo_vehiculo_id === 2 ? 'Motocicleta' : 'Automóvil / Sedán'}
+                  </span>
+                </div>
+
                 {selectedEspacio.placa_ocupante && (
                   <>
                     <div className="flex justify-between py-2 border-b border-slate-100">
@@ -484,6 +561,14 @@ export default function DashboardPage() {
                               minute: '2-digit',
                             })
                           : 'Hace ~1 hora'}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between py-2 border-b border-slate-100">
+                      <span className="text-slate-500">Tiempo Ocupado:</span>
+                      <span className="font-bold text-rose-700 flex items-center gap-1.5">
+                        <Clock className="h-4 w-4 text-rose-600 animate-pulse" />
+                        {calcularTiempoOcupado(selectedEspacio.hora_ingreso)} transcurridos
                       </span>
                     </div>
                   </>
