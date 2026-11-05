@@ -633,7 +633,7 @@ export const api = {
         rol_id: u.rol,
         nombre: `${u.nombre} ${u.apellido || ''}`.trim(),
       };
-      const token = `auth_token_${u.id}_${Date.now()}`;
+      const token = authData.token || authData.access_token || `auth_token_${u.id}_${Date.now()}`;
       setToken(token);
       setDemoMode(false);
       if (isClient()) {
