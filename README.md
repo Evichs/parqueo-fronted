@@ -73,12 +73,28 @@ Todas las llamadas desde el cliente HTTP (`src/lib/api.ts`) se dirigen a `/api/b
 - Tabla estilizada de pensiones mensuales (`GET /api/backend/pensiones`) con estado visual de vigencia (Activa / Vencida).
 - Modal para creación de pensiones (`POST /api/backend/pensiones`), vinculando cliente, vehículo y rango de fechas mensual.
 - Creación rápida de nuevos clientes en el mismo flujo.
+- **Edición completa de pensión:** Modal prellenado para actualizar cliente, vehículo, tarifa o rango de fechas (`PUT /api/backend/pensiones/:id`).
+- **Eliminación y revocación:** Diálogo de confirmación con anulación de acceso (`DELETE /api/backend/pensiones/vehiculo/:vehiculoId`).
 
-### 6. Catálogos y Configuración (`/configuracion`)
-- **Sucursales**: Consulta y creación de sedes (`POST /api/backend/sucursales`).
-- **Niveles de Parqueo**: Consulta y creación de pisos/sótanos (`POST /api/backend/niveles-parqueo`).
-- **Tarifas**: Configuración de cobro por hora y fracción según tipo de vehículo (`POST /api/backend/tarifas`).
-- **Empleados**: Registro de operadores de garita y supervisores (`POST /api/backend/empleados`).
+### 6. Catálogos y Configuración General (`/configuracion`)
+Panel administrativo completo con soporte de visualización, creación, **Edición (PUT)** y **Eliminación (DELETE)** con modales dedicados y confirmaciones de seguridad:
+- **Sucursales**: `PUT /api/backend/sucursales/:id` y `DELETE /api/backend/sucursales/:id`.
+- **Niveles de Parqueo**: `PUT /api/backend/niveles-parqueo/:id` y `DELETE /api/backend/niveles-parqueo/:id`.
+- **Espacios de Parqueo**: `PUT /api/backend/espacios/:id` y `DELETE /api/backend/espacios/:id`.
+- **Tarifas por Vehículo**: `PUT /api/backend/tarifas/:id` y `DELETE /api/backend/tarifas/vehiculo/:tipoVehiculoId`.
+- **Empleados de Garita/Caja**: `PUT /api/backend/empleados/:usuarioId` y `DELETE /api/backend/empleados/:usuarioId`.
+- **Clientes**: `PUT /api/backend/clientes/:usuarioId` y `DELETE /api/backend/clientes/:usuarioId`.
+- **Vehículos**: `PUT /api/backend/vehiculos/:placa` y `DELETE /api/backend/vehiculos/:placa`.
+- **Usuarios del Sistema**: `PUT /api/backend/usuarios/:idOrEmail` y `DELETE /api/backend/usuarios/:email`.
+- **Catálogos Auxiliares**:
+  - Estados de Espacio (`PUT` y `DELETE` `/api/backend/estados-espacio/:id`).
+  - Métodos de Pago (`PUT` y `DELETE` `/api/backend/metodos-pago/:id`).
+  - Roles (`PUT` y `DELETE` `/api/backend/roles/:id`).
+  - Tipos de Vehículo (`PUT` y `DELETE` `/api/backend/tipos-vehiculo/:id`).
+- **Bitácora / Auditoría (Audit Logs)**: `PUT /api/backend/audit-logs/:id` y `DELETE /api/backend/audit-logs/usuario/:usuarioId`.
+- **Tickets y Pagos (en Módulo Caja & Administración)**:
+  - Tickets: `PUT /api/backend/tickets/:codigo` y `DELETE /api/backend/tickets/:codigo`.
+  - Pagos: `PUT /api/backend/pagos/:id` y `DELETE /api/backend/pagos/ticket/:ticketId`.
 
 ---
 

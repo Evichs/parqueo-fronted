@@ -19,9 +19,12 @@ import {
   RefreshCw,
   QrCode,
   X,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal';
 import { QRCodeSVG } from 'qrcode.react';
-import { api, mockStore } from '@/lib/api';
+import { api } from '@/lib/api';
 import { Ticket, Tarifa, Pago } from '@/types/api';
 import { toast } from 'sonner';
 
@@ -66,10 +69,49 @@ function CajaContent() {
   const [pagoExitoso, setPagoExitoso] = useState<any | null>(null);
   const [showReciboModal, setShowReciboModal] = useState(false);
 
-  const cargarTicketsOcupados = () => {
+  // Historial de Pagos Procesados
+  const [historialPagos, setHistorialPagos] = useState<Pago[]>([]);
+
+  // Estados Edición y Eliminación Ticket (PUT /api/tickets/:codigo, DELETE /api/tickets/:codigo)
+  const [editingTicket, setEditingTicket] = useState<Ticket | null>(null);
+  const [showEditTicketModal, setShowEditTicketModal] = useState(false);
+  const [editTicketEspacioId, setEditTicketEspacioId] = useState<number>(1);
+  const [savingTicket, setSavingTicket] = useState(false);
+
+  const [deletingTicket, setDeletingTicket] = useState<Ticket | null>(null);
+  const [showDeleteTicketModal, setShowDeleteTicketModal] = useState(false);
+  const [deletingTicketLoading, setDeletingTicketLoading] = useState(false);
+
+  // Estados Edición y Eliminación Pago (PUT /api/pagos/:id, DELETE /api/pagos/ticket/:ticketId)
+  const [editingPago, setEditingPago] = useState<Pago | null>(null);
+  const [showEditPagoModal, setShowEditPagoModal] = useState(false);
+  const [editPagoTotal, setEditPagoTotal] = useState<number>(15);
+  const [editPagoMetodo, setEditPagoMetodo] = useState<number>(1);
+  const [editPagoAuth, setEditPagoAuth] = useState<string>('');
+  const [editPagoFel, setEditPagoFel] = useState<boolean>(false);
+  const [savingPago, setSavingPago] = useState(false);
+
+  const [deletingPago, setDeletingPago] = useState<Pago | null>(null);
+  const [showDeletePagoModal, setShowDeletePagoModal] = useState(false);
+  const [deletingPagoLoading, setDeletingPagoLoading] = useState(false);
+
+  const cargarPagos = async () => {
     try {
-      const activos = api.tickets.getActivos();
-      setTicketsOcupados(activos);
+      const data = await api.pagos.getAll();
+      if (Array.isArray(data)) setHistorialPagos(data);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const cargarTicketsOcupados = async () => {
+    try {
+      const tickets = await api.tickets.getAll();
+      if (Array.isArray(tickets)) {
+        const activos = tickets.filter((tk) => !tk.pagado && !tk.hora_salida);
+        setTicketsOcupados(activos);
+      }
+      await cargarPagos();
     } catch (e) {
       console.error(e);
     }
@@ -100,14 +142,20 @@ function CajaContent() {
     }
   }, [initialPlaca]);
 
-  const buscarPorPlaca = (placa: string) => {
-    const todosTickets = mockStore.getTickets();
-    const t = todosTickets.find(
-      (tk: Ticket) => tk.placa.toUpperCase() === placa.toUpperCase() && !tk.pagado
-    );
-    if (t) {
-      setCodigoTicketInput(t.codigo);
-      procesarCierreSalida(t.codigo);
+  const buscarPorPlaca = async (placa: string) => {
+    try {
+      const tickets = await api.tickets.getAll();
+      if (Array.isArray(tickets)) {
+        const t = tickets.find(
+          (tk: Ticket) => tk.placa?.toUpperCase() === placa.toUpperCase() && !tk.pagado
+        );
+        if (t) {
+          setCodigoTicketInput(t.codigo);
+          procesarCierreSalida(t.codigo);
+        }
+      }
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -204,6 +252,113 @@ function CajaContent() {
     window.print();
   };
 
+  // Handlers para Tickets
+  const handleOpenEditTicket = (tk: Ticket, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingTicket(tk);
+    setEditTicketEspacioId(tk.espacio_id);
+    setShowEditTicketModal(true);
+  };
+
+  const handleSaveEditTicket = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTicket) return;
+    setSavingTicket(true);
+    try {
+      await api.tickets.update(editingTicket.codigo, {
+        espacioId: Number(editTicketEspacioId),
+      });
+      toast.success(`Ticket ${editingTicket.codigo} actualizado exitosamente`);
+      setShowEditTicketModal(false);
+      setEditingTicket(null);
+      cargarTicketsOcupados();
+    } catch (err: any) {
+      toast.error(err.message || 'Error al actualizar ticket');
+    } finally {
+      setSavingTicket(false);
+    }
+  };
+
+  const handleOpenDeleteTicket = (tk: Ticket, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setDeletingTicket(tk);
+    setShowDeleteTicketModal(true);
+  };
+
+  const handleConfirmDeleteTicket = async () => {
+    if (!deletingTicket) return;
+    setDeletingTicketLoading(true);
+    try {
+      await api.tickets.delete(deletingTicket.codigo);
+      toast.success(`Ticket ${deletingTicket.codigo} eliminado`);
+      setShowDeleteTicketModal(false);
+      setDeletingTicket(null);
+      if (codigoTicketInput === deletingTicket.codigo) {
+        setCodigoTicketInput('');
+        setTicketActual(null);
+        setSalidaCalculada(null);
+      }
+      cargarTicketsOcupados();
+    } catch (err: any) {
+      toast.error(err.message || 'Error al eliminar ticket');
+    } finally {
+      setDeletingTicketLoading(false);
+    }
+  };
+
+  // Handlers para Pagos
+  const handleOpenEditPago = (pago: Pago) => {
+    setEditingPago(pago);
+    setEditPagoTotal(pago.total_pagado);
+    setEditPagoMetodo(pago.metodo_pago_id);
+    setEditPagoAuth(pago.numero_autorizacion || '');
+    setEditPagoFel(pago.requiere_fel);
+    setShowEditPagoModal(true);
+  };
+
+  const handleSaveEditPago = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPago) return;
+    setSavingPago(true);
+    try {
+      await api.pagos.update(editingPago.id, {
+        total_pagado: Number(editPagoTotal),
+        metodo_pago_id: Number(editPagoMetodo),
+        numero_autorizacion: editPagoAuth,
+        requiere_fel: editPagoFel,
+      });
+      toast.success(`Pago #${editingPago.id} actualizado exitosamente`);
+      setShowEditPagoModal(false);
+      setEditingPago(null);
+      cargarPagos();
+    } catch (err: any) {
+      toast.error(err.message || 'Error al actualizar pago');
+    } finally {
+      setSavingPago(false);
+    }
+  };
+
+  const handleOpenDeletePago = (pago: Pago) => {
+    setDeletingPago(pago);
+    setShowDeletePagoModal(true);
+  };
+
+  const handleConfirmDeletePago = async () => {
+    if (!deletingPago) return;
+    setDeletingPagoLoading(true);
+    try {
+      await api.pagos.delete(deletingPago.ticket_id);
+      toast.success(`Pago del ticket #${deletingPago.ticket_id} eliminado exitosamente`);
+      setShowDeletePagoModal(false);
+      setDeletingPago(null);
+      cargarPagos();
+    } catch (err: any) {
+      toast.error(err.message || 'Error al eliminar pago');
+    } finally {
+      setDeletingPagoLoading(false);
+    }
+  };
+
   return (
     <AppLayout
       title="Módulo de Caja - Salida y Cobro"
@@ -288,14 +443,13 @@ function CajaContent() {
                     const isSelected =
                       codigoTicketInput.toUpperCase() === tk.codigo.toUpperCase();
                     return (
-                      <button
+                      <div
                         key={tk.codigo}
-                        type="button"
                         onClick={() => {
                           setCodigoTicketInput(tk.codigo);
                           procesarCierreSalida(tk.codigo);
                         }}
-                        className={`group relative flex flex-col justify-between rounded-xl border p-3 text-left transition ${
+                        className={`group relative flex flex-col justify-between rounded-xl border p-3 text-left transition cursor-pointer ${
                           isSelected
                             ? 'border-blue-600 bg-blue-50/90 ring-2 ring-blue-600/20 shadow-sm'
                             : 'border-slate-200 bg-slate-50/60 hover:border-blue-400 hover:bg-white hover:shadow-md'
@@ -305,9 +459,28 @@ function CajaContent() {
                           <span className="font-mono text-xs font-black text-blue-700 group-hover:text-blue-800">
                             {tk.codigo}
                           </span>
-                          <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 border border-rose-100">
-                            {formatTiempo(tk.minutos_transcurridos)}
-                          </span>
+                          <div className="flex items-center gap-1">
+                            <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-600 border border-rose-100">
+                              {formatTiempo(tk.minutos_transcurridos)}
+                            </span>
+                            {/* Botones de acción Editar y Eliminar Ticket */}
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenEditTicket(tk, e)}
+                              title="Editar Ticket (PUT)"
+                              className="rounded p-1 text-slate-400 hover:bg-blue-100 hover:text-blue-700 transition"
+                            >
+                              <Pencil className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => handleOpenDeleteTicket(tk, e)}
+                              title="Eliminar Ticket (DELETE)"
+                              className="rounded p-1 text-slate-400 hover:bg-rose-100 hover:text-rose-700 transition"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          </div>
                         </div>
 
                         <div className="mt-2 flex items-center justify-between text-xs w-full">
@@ -325,7 +498,7 @@ function CajaContent() {
                             {tk.espacio_nombre}
                           </span>
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -585,6 +758,312 @@ function CajaContent() {
           </div>
         </div>
       </div>
+
+      {/* TABLA DE HISTORIAL DE PAGOS REGISTRADOS */}
+      <div className="mt-8 rounded-2xl border border-slate-200/80 bg-white shadow-sm overflow-hidden">
+        <div className="border-b border-slate-100 p-5 flex items-center justify-between">
+          <div>
+            <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+              <FileCheck className="h-4 w-4 text-emerald-600" />
+              Historial de Pagos Procesados y Facturación FEL
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Registro contable de liquidaciones con opciones de edición (PUT) y anulación (DELETE)
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={cargarPagos}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition"
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Refrescar Pagos</span>
+          </button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="py-3 px-5">ID Pago</th>
+                <th className="py-3 px-5">Ticket Asociado</th>
+                <th className="py-3 px-5">Monto Cobrado</th>
+                <th className="py-3 px-5">Método</th>
+                <th className="py-3 px-5">Autorización POS / SAT</th>
+                <th className="py-3 px-5">Tipo Factura</th>
+                <th className="py-3 px-5">Fecha / Hora</th>
+                <th className="py-3 px-5 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {historialPagos.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="py-8 text-center text-slate-400">
+                    No hay registros de pagos recientes.
+                  </td>
+                </tr>
+              ) : (
+                historialPagos.map((pago) => (
+                  <tr key={pago.id} className="hover:bg-slate-50/70 transition">
+                    <td className="py-3.5 px-5 font-mono font-bold text-slate-500">
+                      #{pago.id}
+                    </td>
+                    <td className="py-3.5 px-5 font-mono font-bold text-blue-700">
+                      {pago.ticket?.codigo || `TCK-REF-${pago.ticket_id}`}
+                    </td>
+                    <td className="py-3.5 px-5 font-bold text-slate-900 text-sm">
+                      Q{Number(pago.total_pagado).toFixed(2)}
+                    </td>
+                    <td className="py-3.5 px-5 text-slate-600">
+                      {pago.metodo_pago_id === 1 ? 'Efectivo' : 'Tarjeta / POS'}
+                    </td>
+                    <td className="py-3.5 px-5 font-mono text-[11px] text-slate-600">
+                      {pago.numero_autorizacion || 'N/A'}
+                    </td>
+                    <td className="py-3.5 px-5">
+                      {pago.requiere_fel ? (
+                        <span className="rounded bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 border border-blue-200">
+                          FEL SAT
+                        </span>
+                      ) : (
+                        <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-600">
+                          Comprobante
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-5 text-slate-500 text-[11px]">
+                      {pago.fecha_pago ? new Date(pago.fecha_pago).toLocaleString('es-GT') : 'Hoy'}
+                    </td>
+                    <td className="py-3.5 px-5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditPago(pago)}
+                          title="Editar Pago (PUT)"
+                          className="rounded-lg p-1.5 text-slate-500 hover:bg-blue-50 hover:text-blue-600 transition"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenDeletePago(pago)}
+                          title="Eliminar Pago (DELETE)"
+                          className="rounded-lg p-1.5 text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* MODAL EDITAR TICKET (PUT /api/tickets/:codigo) */}
+      {showEditTicketModal && editingTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-blue-600" />
+                Editar Ticket: {editingTicket.codigo}
+              </h3>
+              <button
+                onClick={() => setShowEditTicketModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditTicket} className="mt-4 space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  Placa Vehicular
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={editingTicket.placa}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-100 py-2.5 px-3 font-mono font-bold text-slate-600"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  ID Cajón / Espacio Asignado
+                </label>
+                <input
+                  type="number"
+                  required
+                  min={1}
+                  value={editTicketEspacioId}
+                  onChange={(e) => setEditTicketEspacioId(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2.5 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowEditTicketModal(false)}
+                  disabled={savingTicket}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingTicket}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50 shadow-sm"
+                >
+                  {savingTicket ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>Actualizar Ticket</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMAR ELIMINACIÓN DE TICKET (DELETE /api/tickets/:codigo) */}
+      <ConfirmDeleteModal
+        isOpen={showDeleteTicketModal}
+        title="¿Eliminar Ticket de Parqueo?"
+        message="¿Estás seguro de que deseas anular y eliminar este ticket? Si el cajón está ocupado, quedará liberado en el sistema."
+        itemName={deletingTicket ? `Ticket: ${deletingTicket.codigo} (Placa: ${deletingTicket.placa})` : undefined}
+        loading={deletingTicketLoading}
+        onConfirm={handleConfirmDeleteTicket}
+        onCancel={() => {
+          setShowDeleteTicketModal(false);
+          setDeletingTicket(null);
+        }}
+      />
+
+      {/* MODAL EDITAR PAGO (PUT /api/pagos/:id) */}
+      {showEditPagoModal && editingPago && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-blue-600" />
+                Editar Registro de Pago #{editingPago.id}
+              </h3>
+              <button
+                onClick={() => setShowEditPagoModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditPago} className="mt-4 space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  Monto Total Cobrado (Q)
+                </label>
+                <input
+                  type="number"
+                  step="0.5"
+                  required
+                  value={editPagoTotal}
+                  onChange={(e) => setEditPagoTotal(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  Método de Pago
+                </label>
+                <select
+                  value={editPagoMetodo}
+                  onChange={(e) => setEditPagoMetodo(Number(e.target.value))}
+                  className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                >
+                  <option value={1}>Efectivo</option>
+                  <option value={2}>Tarjeta de Débito / Crédito</option>
+                  <option value={3}>Transferencia Bancaria</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  Número de Autorización (POS / Banco)
+                </label>
+                <input
+                  type="text"
+                  value={editPagoAuth}
+                  onChange={(e) => setEditPagoAuth(e.target.value)}
+                  placeholder="Ej: POS-BAC-48192"
+                  className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex items-center gap-2.5 pt-1">
+                <input
+                  type="checkbox"
+                  id="requiere_fel_edit"
+                  checked={editPagoFel}
+                  onChange={(e) => setEditPagoFel(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="requiere_fel_edit" className="font-semibold text-slate-700 cursor-pointer">
+                  Emitido con Factura Electrónica FEL
+                </label>
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2.5 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowEditPagoModal(false)}
+                  disabled={savingPago}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPago}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50 shadow-sm"
+                >
+                  {savingPago ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>Actualizar Pago</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMAR ELIMINACIÓN DE PAGO (DELETE /api/pagos/ticket/:ticketId) */}
+      <ConfirmDeleteModal
+        isOpen={showDeletePagoModal}
+        title="¿Eliminar Registro de Pago?"
+        message="¿Estás seguro de que deseas anular y eliminar este comprobante de pago? El ticket correspondiente volverá a figurar como pendiente de liquidación."
+        itemName={deletingPago ? `Pago #${deletingPago.id} (Ticket ID: ${deletingPago.ticket_id})` : undefined}
+        loading={deletingPagoLoading}
+        onConfirm={handleConfirmDeletePago}
+        onCancel={() => {
+          setShowDeletePagoModal(false);
+          setDeletingPago(null);
+        }}
+      />
 
       {/* MODAL DE RECIBO / COMPROBANTE DE PAGO Y FACTURA FEL */}
       {showReciboModal && pagoExitoso && (

@@ -18,7 +18,10 @@ import {
   Ban,
   Warehouse,
   Sun,
+  Pencil,
+  Trash2,
 } from 'lucide-react';
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal';
 import { api } from '@/lib/api';
 import { Espacio, Sucursal, NivelParqueo } from '@/types/api';
 import { toast } from 'sonner';
@@ -33,6 +36,18 @@ export default function DashboardPage() {
   const [espacios, setEspacios] = useState<Espacio[]>([]);
   const [filterState, setFilterState] = useState<'all' | 'disponible' | 'ocupado'>('all');
   const [selectedEspacio, setSelectedEspacio] = useState<Espacio | null>(null);
+
+  // Estados para Edición de Espacio (PUT /api/espacios/:id)
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editNivelId, setEditNivelId] = useState<number>(1);
+  const [editEstadoId, setEditEstadoId] = useState<number>(1);
+  const [editTipoVehiculoId, setEditTipoVehiculoId] = useState<number>(1);
+  const [editEsTechado, setEditEsTechado] = useState<boolean>(true);
+  const [savingEspacio, setSavingEspacio] = useState(false);
+
+  // Estados para Eliminación de Espacio (DELETE /api/espacios/:id)
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingEspacio, setDeletingEspacio] = useState(false);
 
   // Reloj en vivo para actualizar el conteo de tiempo ocupado cada 30 segundos
   const [now, setNow] = useState<number>(Date.now());
@@ -90,6 +105,58 @@ export default function DashboardPage() {
     loadData();
   }, []);
 
+  const handleOpenEditEspacio = (esp: Espacio) => {
+    setSelectedEspacio(esp);
+    setEditNivelId(esp.nivel_id);
+    setEditEstadoId(esp.estado_id);
+    setEditTipoVehiculoId(esp.tipo_vehiculo_id);
+    setEditEsTechado(esp.es_techado);
+    setShowEditModal(true);
+  };
+
+  const handleSaveEditEspacio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedEspacio) return;
+    setSavingEspacio(true);
+    try {
+      await api.espacios.update(selectedEspacio.id, {
+        nivel_id: Number(editNivelId),
+        estado_id: Number(editEstadoId),
+        tipo_vehiculo_id: Number(editTipoVehiculoId),
+        es_techado: Boolean(editEsTechado),
+      });
+      toast.success(`Cajón ${selectedEspacio.numero_identificador || selectedEspacio.id} actualizado exitosamente`);
+      setShowEditModal(false);
+      setSelectedEspacio(null);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'Error al actualizar espacio');
+    } finally {
+      setSavingEspacio(false);
+    }
+  };
+
+  const handleOpenDeleteEspacio = (esp: Espacio) => {
+    setSelectedEspacio(esp);
+    setShowDeleteModal(true);
+  };
+
+  const handleConfirmDeleteEspacio = async () => {
+    if (!selectedEspacio) return;
+    setDeletingEspacio(true);
+    try {
+      await api.espacios.delete(selectedEspacio.id);
+      toast.success(`Cajón ${selectedEspacio.numero_identificador || selectedEspacio.id} eliminado del sistema`);
+      setShowDeleteModal(false);
+      setSelectedEspacio(null);
+      loadData();
+    } catch (err: any) {
+      toast.error(err.message || 'Error al eliminar espacio');
+    } finally {
+      setDeletingEspacio(false);
+    }
+  };
+
   // Niveles filtrados por la sucursal activa
   const nivelesFiltrados =
     selectedSucursalId === 'all'
@@ -117,12 +184,13 @@ export default function DashboardPage() {
   });
 
   // Métricas calculadas
-  const totalEspacios = espacios.length || 22;
+  const totalEspacios = espacios.length;
+  const espaciosDisponibles = espacios.filter((e) => e.estado_id === 1).length;
   const espaciosOcupados = espacios.filter((e) => e.estado_id === 2).length;
-  const espaciosDisponibles = totalEspacios - espaciosOcupados;
-  const porcentajeOcupacion = Math.round((espaciosOcupados / (totalEspacios || 1)) * 100);
+  const porcentajeOcupacion =
+    totalEspacios > 0 ? Math.round((espaciosOcupados / totalEspacios) * 100) : 0;
   const vehiculosDentro = espaciosOcupados;
-  const ingresosEstimados = espaciosOcupados * 15 + 185;
+  const ingresosEstimados = espaciosOcupados * 15;
 
   return (
     <AppLayout
@@ -316,32 +384,29 @@ export default function DashboardPage() {
                 <div className="flex rounded-xl bg-slate-200/70 p-1 text-xs font-medium">
                   <button
                     onClick={() => setFilterState('all')}
-                    className={`rounded-lg px-3 py-1.5 transition ${
-                      filterState === 'all'
-                        ? 'bg-white text-slate-900 shadow-sm font-bold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
+                    className={`rounded-lg px-3 py-1.5 transition ${filterState === 'all'
+                      ? 'bg-white text-slate-900 shadow-sm font-bold'
+                      : 'text-slate-600 hover:text-slate-900'
+                      }`}
                   >
                     Todos ({espacios.length})
                   </button>
                   <button
                     onClick={() => setFilterState('ocupado')}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
-                      filterState === 'ocupado'
-                        ? 'bg-rose-600 text-white shadow-sm font-bold'
-                        : 'text-slate-600 hover:text-rose-600'
-                    }`}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${filterState === 'ocupado'
+                      ? 'bg-rose-600 text-white shadow-sm font-bold'
+                      : 'text-slate-600 hover:text-rose-600'
+                      }`}
                   >
                     <span className="h-2 w-2 rounded-full bg-rose-500" />
                     <span>Solo Ocupados ({espaciosOcupados})</span>
                   </button>
                   <button
                     onClick={() => setFilterState('disponible')}
-                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${
-                      filterState === 'disponible'
-                        ? 'bg-emerald-600 text-white shadow-sm font-bold'
-                        : 'text-slate-600 hover:text-emerald-600'
-                    }`}
+                    className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 transition ${filterState === 'disponible'
+                      ? 'bg-emerald-600 text-white shadow-sm font-bold'
+                      : 'text-slate-600 hover:text-emerald-600'
+                      }`}
                   >
                     <span className="h-2 w-2 rounded-full bg-emerald-500" />
                     <span>Solo Libres ({espaciosDisponibles})</span>
@@ -396,11 +461,10 @@ export default function DashboardPage() {
                     <button
                       key={esp.id}
                       onClick={() => setSelectedEspacio(esp)}
-                      className={`group relative flex flex-col justify-between rounded-xl border-2 p-3 text-center transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md ${
-                        isOcupado
-                          ? 'border-rose-400 bg-rose-50/80 hover:bg-rose-100/90 text-rose-950'
-                          : 'border-emerald-300 bg-emerald-50/40 hover:bg-emerald-100/60 text-emerald-950'
-                      }`}
+                      className={`group relative flex flex-col justify-between rounded-xl border-2 p-3 text-center transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md ${isOcupado
+                        ? 'border-rose-400 bg-rose-50/80 hover:bg-rose-100/90 text-rose-950'
+                        : 'border-emerald-300 bg-emerald-50/40 hover:bg-emerald-100/60 text-emerald-950'
+                        }`}
                     >
                       {/* Número de Cajón */}
                       <div className="flex items-center justify-between border-b border-slate-200/60 pb-1.5">
@@ -408,11 +472,10 @@ export default function DashboardPage() {
                           {esp.numero_identificador || `C-${esp.id}`}
                         </span>
                         <span
-                          className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${
-                            isOcupado
-                              ? 'bg-rose-600 text-white shadow-sm'
-                              : 'bg-emerald-600 text-white shadow-sm'
-                          }`}
+                          className={`rounded px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider ${isOcupado
+                            ? 'bg-rose-600 text-white shadow-sm'
+                            : 'bg-emerald-600 text-white shadow-sm'
+                            }`}
                         >
                           {isOcupado ? 'OCUPADO' : 'LIBRE'}
                         </span>
@@ -484,9 +547,8 @@ export default function DashboardPage() {
               <div className="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div className="flex items-center gap-2.5">
                   <div
-                    className={`flex h-10 w-10 items-center justify-center rounded-xl font-bold text-white ${
-                      selectedEspacio.estado_id === 1 ? 'bg-emerald-600' : 'bg-rose-600'
-                    }`}
+                    className={`flex h-10 w-10 items-center justify-center rounded-xl font-bold text-white ${selectedEspacio.estado_id === 1 ? 'bg-emerald-600' : 'bg-rose-600'
+                      }`}
                   >
                     <Car className="h-5 w-5" />
                   </div>
@@ -511,9 +573,8 @@ export default function DashboardPage() {
                 <div className="flex justify-between py-2 border-b border-slate-100">
                   <span className="text-slate-500">Estado:</span>
                   <span
-                    className={`font-bold ${
-                      selectedEspacio.estado_id === 1 ? 'text-emerald-600' : 'text-rose-600'
-                    }`}
+                    className={`font-bold ${selectedEspacio.estado_id === 1 ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
                   >
                     {selectedEspacio.estado_id === 1 ? 'Disponible (Libre)' : 'Ocupado'}
                   </span>
@@ -557,9 +618,9 @@ export default function DashboardPage() {
                       <span className="font-medium text-slate-700">
                         {selectedEspacio.hora_ingreso
                           ? new Date(selectedEspacio.hora_ingreso).toLocaleTimeString('es-GT', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
                           : 'Hace ~1 hora'}
                       </span>
                     </div>
@@ -573,6 +634,29 @@ export default function DashboardPage() {
                     </div>
                   </>
                 )}
+              </div>
+
+              {/* Barra de Acciones de Administración: Editar y Eliminar */}
+              <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3">
+                <span className="text-[11px] font-semibold text-slate-400">Acciones de Cajón:</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleOpenEditEspacio(selectedEspacio)}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-blue-50 hover:text-blue-600 transition"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    <span>Editar</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenDeleteEspacio(selectedEspacio)}
+                    className="flex items-center gap-1.5 rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 transition"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    <span>Eliminar</span>
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 flex gap-2.5">
@@ -603,6 +687,130 @@ export default function DashboardPage() {
             </div>
           </div>
         )}
+
+        {/* MODAL EDITAR ESPACIO DE PARQUEO (PUT /api/espacios/:id) */}
+        {showEditModal && selectedEspacio && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs animate-in fade-in">
+            <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Pencil className="h-5 w-5 text-blue-600" />
+                  Editar Cajón {selectedEspacio.numero_identificador || `#${selectedEspacio.id}`}
+                </h3>
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditEspacio} className="mt-4 space-y-4 text-xs">
+                <div>
+                  <label className="block font-semibold uppercase text-slate-600 mb-1">
+                    Nivel de Parqueo
+                  </label>
+                  <select
+                    value={editNivelId}
+                    onChange={(e) => setEditNivelId(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                  >
+                    {niveles.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.nombre_nivel}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold uppercase text-slate-600 mb-1">
+                    Estado del Cajón
+                  </label>
+                  <select
+                    value={editEstadoId}
+                    onChange={(e) => setEditEstadoId(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                  >
+                    <option value={1}>Disponible (Libre)</option>
+                    <option value={2}>Ocupado</option>
+                    <option value={3}>Reservado</option>
+                    <option value={4}>En Mantenimiento</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold uppercase text-slate-600 mb-1">
+                    Tipo de Vehículo Permitido
+                  </label>
+                  <select
+                    value={editTipoVehiculoId}
+                    onChange={(e) => setEditTipoVehiculoId(Number(e.target.value))}
+                    className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                  >
+                    <option value={1}>Sedán / Automóvil</option>
+                    <option value={2}>Motocicleta</option>
+                    <option value={3}>Camioneta / SUV</option>
+                    <option value={4}>Camión / Utilitario</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2.5 pt-1">
+                  <input
+                    type="checkbox"
+                    id="es_techado_check"
+                    checked={editEsTechado}
+                    onChange={(e) => setEditEsTechado(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  <label htmlFor="es_techado_check" className="font-semibold text-slate-700 cursor-pointer">
+                    Espacio Techado / Bajo techo
+                  </label>
+                </div>
+
+                <div className="mt-6 flex justify-end gap-2.5 border-t border-slate-100 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => setShowEditModal(false)}
+                    disabled={savingEspacio}
+                    className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingEspacio}
+                    className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50 shadow-sm"
+                  >
+                    {savingEspacio ? (
+                      <>
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                        <span>Guardando...</span>
+                      </>
+                    ) : (
+                      <span>Actualizar Cajón</span>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL CONFIRMACIÓN ELIMINACIÓN DE ESPACIO (DELETE /api/espacios/:id) */}
+        <ConfirmDeleteModal
+          isOpen={showDeleteModal}
+          title="¿Eliminar Espacio de Parqueo?"
+          message="¿Estás seguro de que deseas eliminar este espacio del sistema? El cajón dejará de figurar en el mapa de estacionamientos y reportes."
+          itemName={
+            selectedEspacio
+              ? `Cajón ${selectedEspacio.numero_identificador || `#${selectedEspacio.id}`}`
+              : undefined
+          }
+          loading={deletingEspacio}
+          onConfirm={handleConfirmDeleteEspacio}
+          onCancel={() => setShowDeleteModal(false)}
+        />
       </div>
     </AppLayout>
   );

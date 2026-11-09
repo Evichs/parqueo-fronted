@@ -19,7 +19,7 @@ import {
   User,
   Radio,
 } from 'lucide-react';
-import { api, getToken, getCurrentUser, isDemoMode, setDemoMode } from '@/lib/api';
+import { api, getToken, getCurrentUser } from '@/lib/api';
 import { toast } from 'sonner';
 
 interface AppLayoutProps {
@@ -39,7 +39,6 @@ export default function AppLayout({
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [demoActive, setDemoActive] = useState(false);
 
   useEffect(() => {
     const token = getToken();
@@ -48,8 +47,7 @@ export default function AppLayout({
       return;
     }
     const user = getCurrentUser();
-    setCurrentUser(user || { nombre: 'Admin Parqueo', email: 'admin@parqueo.com' });
-    setDemoActive(isDemoMode());
+    setCurrentUser(user || { nombre: 'Administrador', email: 'admin@umes.edu.gt' });
   }, [router]);
 
   const navItems = [
@@ -88,21 +86,6 @@ export default function AppLayout({
   const handleLogout = () => {
     toast.info('Sesión cerrada correctamente');
     api.auth.logout();
-  };
-
-  const toggleDemoMode = () => {
-    const next = !demoActive;
-    setDemoMode(next);
-    setDemoActive(next);
-    toast.success(
-      next
-        ? 'Modo Demo Activo (Datos simulados en memoria)'
-        : 'Modo API Directa Activo (Conectado a Render)'
-    );
-    // Recargar para refrescar los datos
-    setTimeout(() => {
-      window.location.reload();
-    }, 600);
   };
 
   return (
@@ -151,24 +134,11 @@ export default function AppLayout({
 
         {/* Status Badge */}
         <div className="px-5 py-3 border-b border-slate-800/80 bg-slate-950/40">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 text-xs">
-              <span
-                className={`h-2.5 w-2.5 rounded-full ${
-                  demoActive ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'
-                }`}
-              />
-              <span className="font-medium text-slate-300">
-                {demoActive ? 'Modo Resiliente (Demo)' : 'API Render Conectada'}
-              </span>
-            </div>
-            <button
-              onClick={toggleDemoMode}
-              title="Cambiar entre API Render y Modo Demo Local"
-              className="text-[11px] font-semibold text-blue-400 hover:text-blue-300 underline underline-offset-2"
-            >
-              {demoActive ? 'Usar API' : 'Usar Demo'}
-            </button>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
+            <span className="font-medium text-slate-300">
+              API Backend Conectada
+            </span>
           </div>
         </div>
 

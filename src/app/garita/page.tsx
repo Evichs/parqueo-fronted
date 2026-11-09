@@ -18,15 +18,36 @@ import {
   Sparkles,
   X,
   FileText,
+  Pencil,
+  Trash2,
+  Building2,
 } from 'lucide-react';
+import ConfirmDeleteModal from '@/components/ConfirmDeleteModal';
 import { QRCodeSVG } from 'qrcode.react';
-import { api } from '@/lib/api';
-import { Espacio, Vehiculo, PensionAccesoResponse, Ticket } from '@/types/api';
+import { api, getCurrentUser } from '@/lib/api';
+import {
+  Espacio,
+  Vehiculo,
+  PensionAccesoResponse,
+  Ticket,
+  Sucursal,
+  NivelParqueo,
+  User,
+} from '@/types/api';
 import { toast } from 'sonner';
 
 function GaritaContent() {
   const searchParams = useSearchParams();
   const preselectedEspacioId = searchParams.get('espacio');
+
+  // Usuario operador actual
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  // Estados de Sede / Sucursal y Nivel
+  const [sucursales, setSucursales] = useState<Sucursal[]>([]);
+  const [selectedSucursalId, setSelectedSucursalId] = useState<number | 'all'>('all');
+  const [niveles, setNiveles] = useState<NivelParqueo[]>([]);
+  const [selectedNivelId, setSelectedNivelId] = useState<number | 'all'>('all');
 
   // Estados de búsqueda
   const [placaInput, setPlacaInput] = useState('');
@@ -39,6 +60,17 @@ function GaritaContent() {
   const [marcaInput, setMarcaInput] = useState('');
   const [colorInput, setColorInput] = useState('');
   const [creandoVehiculo, setCreandoVehiculo] = useState(false);
+
+  // Estados Edición Vehículo (PUT /api/vehiculos/:placa)
+  const [showModalEditarVehiculo, setShowModalEditarVehiculo] = useState(false);
+  const [editMarcaInput, setEditMarcaInput] = useState('');
+  const [editColorInput, setEditColorInput] = useState('');
+  const [editClienteIdInput, setEditClienteIdInput] = useState<number | undefined>(undefined);
+  const [editandoVehiculo, setEditandoVehiculo] = useState(false);
+
+  // Estados Eliminación Vehículo (DELETE /api/vehiculos/:placa)
+  const [showModalEliminarVehiculo, setShowModalEliminarVehiculo] = useState(false);
+  const [eliminandoVehiculo, setEliminandoVehiculo] = useState(false);
 
   // Verificación de pensión
   const [verificandoPension, setVerificandoPension] = useState(false);
@@ -54,28 +86,75 @@ function GaritaContent() {
   const [ticketEmitido, setTicketEmitido] = useState<Ticket | null>(null);
   const [showTicketModal, setShowTicketModal] = useState(false);
 
-  // Cargar espacios disponibles
-  const loadEspacios = async () => {
+  // Cargar datos de sucursales, niveles y espacios disponibles
+  const loadData = async () => {
     setLoadingEspacios(true);
     try {
-      const data = await api.espacios.getDisponibles();
-      setEspaciosDisponibles(data);
-      if (preselectedEspacioId) {
-        setSelectedEspacioId(Number(preselectedEspacioId));
-      } else if (data.length > 0 && selectedEspacioId === '') {
-        setSelectedEspacioId(data[0].id);
+      setCurrentUser(getCurrentUser());
+      const [sucRes, nivRes, espRes] = await Promise.allSettled([
+        api.sucursales.getAll(),
+        api.niveles.getAll(),
+        api.espacios.getDisponibles(),
+      ]);
+
+      if (sucRes.status === 'fulfilled' && Array.isArray(sucRes.value)) {
+        setSucursales(sucRes.value);
+      }
+      if (nivRes.status === 'fulfilled' && Array.isArray(nivRes.value)) {
+        setNiveles(nivRes.value);
+      }
+      if (espRes.status === 'fulfilled' && Array.isArray(espRes.value)) {
+        setEspaciosDisponibles(espRes.value);
+        if (preselectedEspacioId) {
+          setSelectedEspacioId(Number(preselectedEspacioId));
+        } else if (espRes.value.length > 0 && selectedEspacioId === '') {
+          setSelectedEspacioId(espRes.value[0].id);
+        }
       }
     } catch (err) {
       console.error(err);
-      toast.error('Error al cargar espacios disponibles');
+      toast.error('Error al sincronizar garita');
     } finally {
       setLoadingEspacios(false);
     }
   };
 
   useEffect(() => {
-    loadEspacios();
+    loadData();
   }, []);
+
+  // Niveles filtrados por la sucursal activa
+  const nivelesFiltrados =
+    selectedSucursalId === 'all'
+      ? niveles
+      : niveles.filter((n) => n.sucursal_id === Number(selectedSucursalId));
+
+  // Espacios disponibles filtrados por sede y nivel
+  const espaciosFiltrados = espaciosDisponibles.filter((esp) => {
+    if (selectedSucursalId !== 'all') {
+      const sucursalIdEspacio =
+        esp.nivel?.sucursal_id ||
+        niveles.find((n) => n.id === esp.nivel_id)?.sucursal_id;
+      if (sucursalIdEspacio && sucursalIdEspacio !== Number(selectedSucursalId)) {
+        return false;
+      }
+    }
+    if (selectedNivelId !== 'all') {
+      if (esp.nivel_id !== Number(selectedNivelId)) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  const selectedSucursal =
+    selectedSucursalId !== 'all'
+      ? sucursales.find((s) => s.id === Number(selectedSucursalId))
+      : null;
+
+  const selectedEspacioObj = espaciosDisponibles.find(
+    (e) => e.id === Number(selectedEspacioId)
+  );
 
   // Buscar placa
   const handleBuscarPlaca = async (e?: React.FormEvent) => {
@@ -154,6 +233,56 @@ function GaritaContent() {
     }
   };
 
+  const handleOpenEditarVehiculo = () => {
+    if (!vehiculoEncontrado) return;
+    setEditMarcaInput(vehiculoEncontrado.marca || '');
+    setEditColorInput(vehiculoEncontrado.color || '');
+    setEditClienteIdInput(vehiculoEncontrado.cliente_id);
+    setShowModalEditarVehiculo(true);
+  };
+
+  const handleSaveEditarVehiculo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!vehiculoEncontrado) return;
+    setEditandoVehiculo(true);
+    try {
+      const updated = await api.vehiculos.update(vehiculoEncontrado.placa, {
+        marca: editMarcaInput.trim(),
+        color: editColorInput.trim(),
+        cliente_id: editClienteIdInput ? Number(editClienteIdInput) : undefined,
+      });
+      setVehiculoEncontrado(updated);
+      toast.success(`Vehículo ${updated.placa} actualizado exitosamente`);
+      setShowModalEditarVehiculo(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Error al actualizar vehículo');
+    } finally {
+      setEditandoVehiculo(false);
+    }
+  };
+
+  const handleOpenEliminarVehiculo = () => {
+    if (!vehiculoEncontrado) return;
+    setShowModalEliminarVehiculo(true);
+  };
+
+  const handleConfirmEliminarVehiculo = async () => {
+    if (!vehiculoEncontrado) return;
+    setEliminandoVehiculo(true);
+    try {
+      await api.vehiculos.delete(vehiculoEncontrado.placa);
+      toast.success(`Vehículo ${vehiculoEncontrado.placa} eliminado exitosamente`);
+      setShowModalEliminarVehiculo(false);
+      setVehiculoEncontrado(null);
+      setPensionInfo(null);
+      setPlacaInput('');
+    } catch (err: any) {
+      toast.error(err.message || 'Error al eliminar vehículo');
+    } finally {
+      setEliminandoVehiculo(false);
+    }
+  };
+
   // Emitir ticket de entrada
   const handleEmitirTicket = async () => {
     const cleanPlaca = placaInput.trim().toUpperCase();
@@ -176,8 +305,8 @@ function GaritaContent() {
       setTicketEmitido(ticket);
       setShowTicketModal(true);
       toast.success(`Ticket generado: ${ticket.codigo}`);
-      // Refrescar espacios
-      loadEspacios();
+      // Refrescar espacios y sedes
+      loadData();
     } catch (err: any) {
       toast.error(err.message || 'Error al emitir ticket');
     } finally {
@@ -252,7 +381,7 @@ function GaritaContent() {
             {/* Resultado de Búsqueda: Si existe */}
             {vehiculoEncontrado && (
               <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-                <div className="flex items-start justify-between">
+                <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white font-bold">
                       <CheckCircle2 className="h-5 w-5" />
@@ -266,6 +395,27 @@ function GaritaContent() {
                         Placa: {vehiculoEncontrado.placa}
                       </p>
                     </div>
+                  </div>
+                  {/* Botones de Acción: Editar y Eliminar Vehículo */}
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleOpenEditarVehiculo}
+                      title="Editar Vehículo (PUT)"
+                      className="flex items-center gap-1 rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 transition shadow-2xs"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                      <span>Editar</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenEliminarVehiculo}
+                      title="Eliminar Vehículo (DELETE)"
+                      className="flex items-center gap-1 rounded-lg border border-rose-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 transition shadow-2xs"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>Eliminar</span>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -351,36 +501,103 @@ function GaritaContent() {
 
           {/* SELECTOR DE ESPACIO Y EMISIÓN DE TICKET */}
           <div className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                   <MapPin className="h-5 w-5 text-emerald-600" />
                   3. Asignación de Cajón & Emisión
                 </h2>
                 <p className="text-xs text-slate-500 mt-1">
-                  Selecciona uno de los {espaciosDisponibles.length} espacios disponibles.
+                  Selecciona la sede y el cajón disponible correspondiente para emitir el ticket.
                 </p>
               </div>
               <button
-                onClick={loadEspacios}
+                onClick={loadData}
                 disabled={loadingEspacios}
-                className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1"
+                className="text-xs font-semibold text-blue-600 hover:underline flex items-center gap-1 self-start sm:self-auto"
               >
                 <RefreshCw className={`h-3 w-3 ${loadingEspacios ? 'animate-spin' : ''}`} />
-                <span>Refrescar</span>
+                <span>Refrescar Cajones</span>
               </button>
+            </div>
+
+            {/* Selectores de Sede / Sucursal y Nivel */}
+            <div className="mt-4 flex flex-wrap items-center gap-3 border-y border-slate-100 py-3 bg-slate-50/60 rounded-xl px-3">
+              {/* Selector de Parqueo / Sede */}
+              <div className="flex items-center rounded-xl bg-white border border-slate-200 px-3 py-1.5 shadow-xs">
+                <Building2 className="h-4 w-4 text-blue-600 mr-2" />
+                <span className="text-[11px] font-bold uppercase text-slate-500 mr-2">
+                  Sede / Parqueo:
+                </span>
+                <select
+                  value={selectedSucursalId}
+                  onChange={(e) => {
+                    setSelectedSucursalId(
+                      e.target.value === 'all' ? 'all' : Number(e.target.value)
+                    );
+                    setSelectedNivelId('all');
+                  }}
+                  className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                >
+                  <option value="all">Todas las Sedes ({sucursales.length})</option>
+                  {sucursales.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nombre}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Selector de Nivel */}
+              <div className="flex items-center rounded-xl bg-white border border-slate-200 px-3 py-1.5 shadow-xs">
+                <span className="text-[11px] font-bold uppercase text-slate-500 mr-2">
+                  Nivel:
+                </span>
+                <select
+                  value={selectedNivelId}
+                  onChange={(e) =>
+                    setSelectedNivelId(
+                      e.target.value === 'all' ? 'all' : Number(e.target.value)
+                    )
+                  }
+                  className="bg-transparent text-xs font-bold text-slate-800 focus:outline-none cursor-pointer"
+                >
+                  <option value="all">Todos los Niveles ({nivelesFiltrados.length})</option>
+                  {nivelesFiltrados.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.nombre_nivel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <span className="text-[11px] font-semibold text-slate-500 ml-auto">
+                Disponibles: <strong className="text-emerald-600">{espaciosFiltrados.length}</strong> de {espaciosDisponibles.length}
+              </span>
             </div>
 
             {/* Grilla compacta de selección de espacios */}
             <div className="mt-4 max-h-56 overflow-y-auto pr-1">
-              {espaciosDisponibles.length === 0 ? (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-center text-xs font-bold text-rose-700">
-                  ¡Atención! No hay cajones disponibles actualmente en el sistema.
+              {espaciosFiltrados.length === 0 ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50/80 p-4 text-center text-xs font-bold text-amber-800">
+                  No hay cajones libres para la sede o nivel seleccionado. Selecciona "Todas las Sedes" o prueba con otra sucursal.
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-6">
-                  {espaciosDisponibles.map((esp) => {
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                  {espaciosFiltrados.map((esp) => {
                     const isSelected = selectedEspacioId === esp.id;
+                    const sucursalNombre =
+                      sucursales.find(
+                        (s) =>
+                          s.id ===
+                          (esp.nivel?.sucursal_id ||
+                            niveles.find((n) => n.id === esp.nivel_id)?.sucursal_id)
+                      )?.nombre || 'Sede General';
+                    const nivelNombre =
+                      esp.nivel?.nombre_nivel ||
+                      niveles.find((n) => n.id === esp.nivel_id)?.nombre_nivel ||
+                      `Nivel ${esp.nivel_id}`;
+
                     return (
                       <button
                         key={esp.id}
@@ -388,7 +605,7 @@ function GaritaContent() {
                         onClick={() => setSelectedEspacioId(esp.id)}
                         className={`flex flex-col items-center justify-center rounded-xl border p-2.5 text-center transition ${
                           isSelected
-                            ? 'border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold scale-105'
+                            ? 'border-blue-600 bg-blue-600 text-white shadow-md shadow-blue-600/30 font-bold scale-102'
                             : 'border-slate-200 bg-slate-50 hover:border-slate-300 text-slate-700'
                         }`}
                       >
@@ -396,11 +613,19 @@ function GaritaContent() {
                           {esp.numero_identificador || `C-${esp.id}`}
                         </span>
                         <span
-                          className={`text-[10px] mt-0.5 ${
-                            isSelected ? 'text-blue-100' : 'text-slate-400'
+                          className={`text-[10px] mt-0.5 font-semibold ${
+                            isSelected ? 'text-blue-100' : 'text-slate-600'
                           }`}
                         >
-                          {esp.es_techado ? 'Techado' : 'Abierto'}
+                          {nivelNombre}
+                        </span>
+                        <span
+                          className={`truncate max-w-full text-[9px] mt-0.5 ${
+                            isSelected ? 'text-blue-200' : 'text-slate-400'
+                          }`}
+                          title={sucursalNombre}
+                        >
+                          {sucursalNombre}
                         </span>
                       </button>
                     );
@@ -439,37 +664,53 @@ function GaritaContent() {
           <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
             <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                <FileText className="h-5 w-5" />
+                <Building2 className="h-5 w-5" />
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Garita 01 - Entrada Principal</h3>
-                <p className="text-[11px] text-slate-500">Operador: En Turno Activo</p>
+              <div className="overflow-hidden">
+                <h3 className="text-sm font-bold text-slate-900 truncate">
+                  {selectedSucursal ? selectedSucursal.nombre : 'Todas las Sedes UMES'}
+                </h3>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {selectedSucursal ? selectedSucursal.direccion : 'Garita de Entrada General'}
+                </p>
               </div>
             </div>
 
-            <div className="mt-4 space-y-3 text-xs">
+            <div className="mt-4 space-y-2.5 text-xs">
               <div className="flex justify-between py-1 border-b border-slate-100">
-                <span className="text-slate-500">Placas rápidas para pruebas:</span>
+                <span className="text-slate-500">Operador:</span>
+                <span className="font-bold text-slate-800">
+                  {currentUser?.nombre || 'Operador en Turno'}
+                </span>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {['P123ABC', 'P890XYZ', 'M456QWE', 'P741LKJ'].map((pl) => (
-                  <button
-                    key={pl}
-                    type="button"
-                    onClick={() => {
-                      setPlacaInput(pl);
-                    }}
-                    className="rounded-lg bg-slate-100 px-2 py-1 font-mono text-[11px] font-bold text-slate-700 hover:bg-blue-100 hover:text-blue-700 transition"
-                  >
-                    {pl}
-                  </button>
-                ))}
+              <div className="flex justify-between py-1 border-b border-slate-100">
+                <span className="text-slate-500">Sede Seleccionada:</span>
+                <span className="font-bold text-blue-600 truncate max-w-[160px]">
+                  {selectedSucursal ? selectedSucursal.nombre : 'Multisede'}
+                </span>
               </div>
+              {selectedSucursal?.telefono_contacto && (
+                <div className="flex justify-between py-1 border-b border-slate-100">
+                  <span className="text-slate-500">Teléfono:</span>
+                  <span className="font-bold text-slate-800">
+                    {selectedSucursal.telefono_contacto}
+                  </span>
+                </div>
+              )}
+              {selectedSucursal?.capacidad_maxima && (
+                <div className="flex justify-between py-1 border-b border-slate-100">
+                  <span className="text-slate-500">Capacidad Sede:</span>
+                  <span className="font-bold text-slate-800">
+                    {selectedSucursal.capacidad_maxima} vehículos
+                  </span>
+                </div>
+              )}
 
               <div className="mt-4 rounded-xl bg-slate-50 p-3 text-[11px] text-slate-500 space-y-2">
                 <p className="font-semibold text-slate-700">Procedimiento de Garita:</p>
                 <ol className="list-decimal pl-4 space-y-1">
-                  <li>Digita o verifica la placa del conductor.</li>
+                  <li>Elige la sede o parqueo donde opera esta garita.</li>
+                  <li>Digita o busca la placa vehicular.</li>
                   <li>El sistema avisa automáticamente si posee pensión.</li>
                   <li>Selecciona el cajón y presiona "Emitir Ticket".</li>
                   <li>Entrega el comprobante térmico con código QR.</li>
@@ -568,11 +809,16 @@ function GaritaContent() {
               {/* Encabezado */}
               <div className="text-center border-b border-dashed border-slate-400 pb-3">
                 <p className="text-base font-black tracking-tight">PARQUEOS UMES</p>
-                <p className="text-[10px] uppercase font-bold text-slate-600">
-                  Universidad Mesoamericana
+                <p className="text-[10px] uppercase font-bold text-slate-800">
+                  {selectedSucursal?.nombre ||
+                    (selectedEspacioObj?.nivel?.sucursal_id
+                      ? sucursales.find(
+                          (s) => s.id === selectedEspacioObj?.nivel?.sucursal_id
+                        )?.nombre
+                      : 'Universidad Mesoamericana')}
                 </p>
                 <p className="text-[9px] text-slate-500">
-                  Campus Central &bull; PBX: 2411-1800
+                  {selectedSucursal?.direccion || 'Control de Garita • PBX: 2411-1800'}
                 </p>
               </div>
 
@@ -589,9 +835,22 @@ function GaritaContent() {
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span>CAJÓN ASIGNADO:</span>
+                  <span>SEDE / PARQUEO:</span>
+                  <span className="font-bold text-slate-900 truncate max-w-[170px]">
+                    {selectedSucursal?.nombre ||
+                      sucursales.find(
+                        (s) => s.id === selectedEspacioObj?.nivel?.sucursal_id
+                      )?.nombre ||
+                      'Sede General'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>CAJÓN / NIVEL:</span>
                   <span className="font-bold text-blue-700">
-                    {ticketEmitido.espacio_id ? `NIVEL 1 - ESPACIO ${ticketEmitido.espacio_id}` : 'General'}
+                    {selectedEspacioObj?.numero_identificador || `C-${ticketEmitido.espacio_id}`}
+                    {selectedEspacioObj?.nivel?.nombre_nivel
+                      ? ` (${selectedEspacioObj.nivel.nombre_nivel})`
+                      : ''}
                   </span>
                 </div>
                 <div className="flex justify-between">
@@ -649,6 +908,103 @@ function GaritaContent() {
           </div>
         </div>
       )}
+      {/* MODAL EDITAR VEHÍCULO (PUT /api/vehiculos/:placa) */}
+      {showModalEditarVehiculo && vehiculoEncontrado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs animate-in fade-in">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-blue-600" />
+                Editar Vehículo: {vehiculoEncontrado.placa}
+              </h3>
+              <button
+                onClick={() => setShowModalEditarVehiculo(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditarVehiculo} className="mt-4 space-y-4 text-xs">
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  Placa Vehicular (Identificador)
+                </label>
+                <input
+                  type="text"
+                  disabled
+                  value={vehiculoEncontrado.placa}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-100 py-2.5 px-3 font-mono font-bold text-slate-700"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  Marca / Modelo
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editMarcaInput}
+                  onChange={(e) => setEditMarcaInput(e.target.value)}
+                  placeholder="Ej: Toyota Corolla"
+                  className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold uppercase text-slate-600 mb-1">
+                  Color
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editColorInput}
+                  onChange={(e) => setEditColorInput(e.target.value)}
+                  placeholder="Ej: Gris Plata"
+                  className="w-full rounded-xl border border-slate-300 py-2.5 px-3 text-slate-900 focus:border-blue-600 focus:outline-none"
+                />
+              </div>
+
+              <div className="mt-6 flex justify-end gap-2.5 border-t border-slate-100 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowModalEditarVehiculo(false)}
+                  disabled={editandoVehiculo}
+                  className="rounded-xl border border-slate-200 px-4 py-2 font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={editandoVehiculo}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 font-bold text-white hover:bg-blue-700 disabled:opacity-50 shadow-sm"
+                >
+                  {editandoVehiculo ? (
+                    <>
+                      <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <span>Actualizar Vehículo</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRMAR ELIMINACIÓN DE VEHÍCULO (DELETE /api/vehiculos/:placa) */}
+      <ConfirmDeleteModal
+        isOpen={showModalEliminarVehiculo}
+        title="¿Eliminar Vehículo?"
+        message="¿Estás seguro de que deseas eliminar este vehículo del registro del sistema?"
+        itemName={vehiculoEncontrado ? `Vehículo Placa: ${vehiculoEncontrado.placa} (${vehiculoEncontrado.marca})` : undefined}
+        loading={eliminandoVehiculo}
+        onConfirm={handleConfirmEliminarVehiculo}
+        onCancel={() => setShowModalEliminarVehiculo(false)}
+      />
     </AppLayout>
   );
 }

@@ -18,8 +18,8 @@ function LoginContent() {
   } | null>(null);
 
   // Formulario Login
-  const [loginCorreo, setLoginCorreo] = useState('admin@parqueo.com');
-  const [loginPassword, setLoginPassword] = useState('Admin123');
+  const [loginCorreo, setLoginCorreo] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [cargandoLogin, setCargandoLogin] = useState(false);
 
   // Formulario Registro
@@ -30,14 +30,13 @@ function LoginContent() {
   const [regPassword, setRegPassword] = useState('');
   const [cargandoRegistro, setCargandoRegistro] = useState(false);
 
-  // Transferencia de sesión si viene con query params desde Vercel
+  // Pre-llenar correo si viene por parámetro de URL
   useEffect(() => {
     const urlCorreo = searchParams.get('correo') || searchParams.get('email');
     if (urlCorreo) {
-      api.auth.loginDemo(urlCorreo);
-      router.replace('/dashboard');
+      setLoginCorreo(urlCorreo);
     }
-  }, [searchParams, router]);
+  }, [searchParams]);
 
   // Manejar Login
   const handleSubmitLogin = async (e: React.FormEvent) => {
