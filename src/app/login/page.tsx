@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { api } from '@/lib/api';
+import { api, setToken } from '@/lib/api';
 
 function LoginContent() {
   const router = useRouter();
@@ -30,13 +30,28 @@ function LoginContent() {
   const [regPassword, setRegPassword] = useState('');
   const [cargandoRegistro, setCargandoRegistro] = useState(false);
 
-  // Pre-llenar correo si viene por parámetro de URL
+  // Recibir sesión desde FrontendLoginParqueo o pre-llenar correo si viene por URL
   useEffect(() => {
+    const urlToken = searchParams.get('token');
     const urlCorreo = searchParams.get('correo') || searchParams.get('email');
+
+    if (urlToken && urlCorreo) {
+      const usuario = {
+        id: Number(searchParams.get('id')) || 1,
+        email: urlCorreo,
+        nombre: searchParams.get('nombre') || 'Usuario Parqueo',
+        rol_id: Number(searchParams.get('rol')) || 1,
+      };
+      setToken(urlToken);
+      localStorage.setItem('umes_user', JSON.stringify(usuario));
+      router.replace('/dashboard');
+      return;
+    }
+
     if (urlCorreo) {
       setLoginCorreo(urlCorreo);
     }
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   // Manejar Login
   const handleSubmitLogin = async (e: React.FormEvent) => {

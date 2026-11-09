@@ -162,6 +162,17 @@ export const api = {
       if (isClient()) {
         localStorage.setItem('umes_user', JSON.stringify(usuario));
       }
+
+      // Sincronizar usuario en parqueos-api para que JwtStrategy valide su external_auth_id
+      await fetch(`${BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: credentials.email,
+          password: credentials.password,
+        }),
+      }).catch(() => null);
+
       return {
         access_token: token,
         usuario,
